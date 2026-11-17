@@ -40,6 +40,8 @@ release-please builds `CHANGELOG.md` and the version from these messages; do not
 
 Skills used by the GitHub agent (`.github/workflows/claude.yml`, triggered by `@claude` in issue and PR comments) are committed in `.agents/skills/` and linked from `.claude/skills/`.
 
+PR descriptions follow `.github/pull_request_template.md`. Review criteria for the calendar are in `REVIEW.md`; `.github/workflows/claude-review.yml` passes them to the reviewer.
+
 ### Issue tracker
 
 Issues live in GitHub Issues for `hakerlolreturn-netizen/ai-for-developers-project-387` (`gh` CLI). See `docs/agents/issue-tracker.md`.

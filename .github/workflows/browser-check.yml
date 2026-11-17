@@ -1,0 +1,55 @@
+name: browser-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: browser-check-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Record checked out SHA
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p browser-check
+          git rev-parse HEAD | tee browser-check/sha.txt
+          test "$(cat browser-check/sha.txt)" = "$HEAD_SHA"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run gen
+
+      - name: Run e2e with trace
+        working-directory: e2e
+        run: |
+          set +e
+          npx playwright test --trace on --reporter=list,html 2>&1 | tee ../browser-check/result.txt
+          status=${PIPESTATUS[0]}
+          echo "exit code: $status" | tee -a ../browser-check/result.txt
+          exit $status
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-check-${{ github.event.pull_request.head.sha }}
+          path: |
+            browser-check/
+            e2e/test-results/
+            e2e/playwright-report/
