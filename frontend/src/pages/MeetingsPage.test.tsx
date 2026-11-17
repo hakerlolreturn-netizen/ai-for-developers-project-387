@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App.tsx'
@@ -19,13 +19,14 @@ const meeting = (
   start: string,
   end: string,
   guestName: string,
+  guestEmail = `${id}@example.com`,
 ): Stub => ({
   id,
   meetingType: { id: typeName, name: typeName, durationMinutes: 30 },
   start,
   end,
   guestName,
-  guestEmail: `${id}@example.com`,
+  guestEmail,
 })
 
 let meetings: Stub[]
@@ -120,5 +121,115 @@ describe('предстоящие встречи', () => {
       ([input]) => new URL(input.url).pathname === '/api/meetings',
     )
     expect(meetingCalls).toHaveLength(1)
+  })
+
+  describe('режим «По гостям»', () => {
+    const at = (day: number, hour: number) => ({
+      start: `2026-10-${day}T${String(hour).padStart(2, '0')}:00:00+03:00`,
+      end: `2026-10-${day}T${String(hour).padStart(2, '0')}:30:00+03:00`,
+    })
+    const make = (id: string, day: number, hour: number, name: string, email: string) =>
+      meeting(id, 'Знакомство', at(day, hour).start, at(day, hour).end, name, email)
+
+    it('по умолчанию «По дням», переключается туда и обратно', async () => {
+      meetings = [make('a', 29, 12, 'Анна', 'anna@x.com')]
+      renderPage()
+
+      expect(await screen.findByRole('heading', { name: 'четверг, 29 октября' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'По дням' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
+      expect(screen.getByRole('heading', { name: 'anna@x.com · Анна · встреч: 1' })).toBeTruthy()
+      expect(screen.queryByRole('heading', { name: 'четверг, 29 октября' })).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'По дням' }))
+      expect(screen.getByRole('heading', { name: 'четверг, 29 октября' })).toBeTruthy()
+    })
+
+    it('объединяет email в разном регистре и с пробелами, группы по ближайшей встрече', async () => {
+      meetings = [
+        make('a', 30, 9, 'Борис', 'boris@x.com'),
+        make('b', 29, 12, 'Анна', 'Anna@X.com'),
+        make('c', 29, 15, 'Анна', ' anna@x.com '),
+      ]
+      renderPage()
+      await screen.findByRole('button', { name: 'По гостям' })
+      await screen.findByRole('heading', { name: 'четверг, 29 октября' })
+      fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
+
+      const headings = screen.getAllByRole('heading', { level: 2 })
+      expect(headings.map((h) => h.textContent)).toEqual([
+        'Anna@X.com · Анна · встреч: 2',
+        'boris@x.com · Борис · встреч: 1',
+      ])
+      const rows = within(screen.getAllByRole('list')[0]!).getAllByRole('listitem')
+      expect(rows.map((r) => r.textContent)).toEqual([
+        'четверг, 29 октября · 12:00–12:30 · Знакомство',
+        'четверг, 29 октября · 15:00–15:30 · Знакомство',
+      ])
+    })
+
+    it('показывает бейдж «идёт сейчас»', async () => {
+      meetings = [
+        meeting(
+          'a',
+          'Знакомство',
+          '2026-10-29T10:00:00+03:00',
+          '2026-10-29T10:30:00+03:00',
+          'Анна',
+        ),
+      ]
+      renderPage()
+      await screen.findByRole('heading', { name: 'четверг, 29 октября' })
+      fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
+      expect(screen.getByText('идёт сейчас')).toBeTruthy()
+    })
+
+    it('несколько имён: первое и +N, клик раскрывает и скрывает', async () => {
+      meetings = [
+        make('a', 29, 12, 'Анна', 'anna@x.com'),
+        make('b', 29, 14, 'Аня', 'anna@x.com'),
+        make('c', 30, 9, 'Анна', 'anna@x.com'),
+        make('d', 30, 10, 'Борис', 'boris@x.com'),
+      ]
+      renderPage()
+      await screen.findByRole('heading', { name: 'четверг, 29 октября' })
+      fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
+
+      expect(screen.getByRole('heading', { name: 'anna@x.com · Анна · встреч: 3' })).toBeTruthy()
+      expect(screen.getAllByRole('button', { name: /^\+\d+$/ })).toHaveLength(1)
+      const counter = screen.getByRole('button', { name: '+1' })
+      expect(screen.queryByText('Другие имена: Аня')).toBeNull()
+
+      fireEvent.click(counter)
+      expect(screen.getByText('Другие имена: Аня')).toBeTruthy()
+      fireEvent.click(counter)
+      expect(screen.queryByText('Другие имена: Аня')).toBeNull()
+    })
+
+    it('раскрытие одной группы не влияет на другие', async () => {
+      meetings = [
+        make('a', 29, 12, 'Анна', 'anna@x.com'),
+        make('b', 29, 13, 'Аня', 'anna@x.com'),
+        make('c', 29, 14, 'Борис', 'boris@x.com'),
+        make('d', 29, 15, 'Боря', 'boris@x.com'),
+      ]
+      renderPage()
+      await screen.findByRole('heading', { name: 'четверг, 29 октября' })
+      fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
+
+      fireEvent.click(screen.getAllByRole('button', { name: '+1' })[0]!)
+      expect(screen.getByText('Другие имена: Аня')).toBeTruthy()
+      expect(screen.queryByText('Другие имена: Боря')).toBeNull()
+    })
+
+    it('пустой список в режиме «По гостям»', async () => {
+      renderPage()
+      await screen.findByText('Предстоящих встреч нет')
+      fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
+      expect(screen.getByText('Предстоящих встреч нет')).toBeTruthy()
+    })
   })
 })
