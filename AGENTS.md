@@ -38,6 +38,8 @@ release-please builds `CHANGELOG.md` and the version from these messages; do not
 
 ## Agent skills
 
+Skills used by the GitHub agent (`.github/workflows/claude.yml`, triggered by `@claude` in issue and PR comments) are committed in `.agents/skills/` and linked from `.claude/skills/`.
+
 ### Issue tracker
 
 Issues live in GitHub Issues for `hakerlolreturn-netizen/ai-for-developers-project-387` (`gh` CLI). See `docs/agents/issue-tracker.md`.
