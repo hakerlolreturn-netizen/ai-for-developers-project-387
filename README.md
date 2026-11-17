@@ -111,6 +111,18 @@ npm run check   # все проверки, как в CI (перед первым
 - Права: `contents: read` и `id-token: write`. Issue и комментарии создаются от имени Claude App, кода и PR этот сценарий не создаёт.
 - `concurrency: lighthouse-audit` без отмены: одновременно идёт один аудит, следующий ждёт. GitHub может задержать или пропустить запуск по расписанию, а в публичном репозитории отключает расписание после 60 дней без активности. Сценарий проверяется ручным запуском: Actions → `lighthouse-audit` → Run workflow из `main`.
 
+Проверенные ручные прогоны:
+
+- [Успешный ручной прогон](https://github.com/hakerlolreturn-netizen/ai-for-developers-project-387/actions/runs/44101560025): аудит прошёл, созданы issue #17 (`color-contrast`), #18 (`meta-description`) и #19 (`robots-txt`).
+- [Повторный прогон без дублей](https://github.com/hakerlolreturn-netizen/ai-for-developers-project-387/actions/runs/44101945809): те же находки совпали с открытыми #17, #18 и #19, новых issue агент не создал.
+
+Где хранится результат прогона:
+
+- Summary прогона: таблица оценок на странице прогона в Actions.
+- Артефакт `lighthouse-<run id>`: каталог `.lighthouse/` с отчётами и `findings.json` (например, `lighthouse-44101560025`). Срок хранения ограничен.
+- Журнал аудита: комментарий агента в issue «Журнал аудита Lighthouse» (#20) со ссылкой на прогон, оценками и списком находок.
+- Issue с меткой `audit`: по одному на каждую находку, с `audit-key: lighthouse/<audit id>`.
+
 Подключение:
 
 1. Установить [Claude GitHub App](https://github.com/apps/claude) на репозиторий.
