@@ -1,0 +1,101 @@
+name: lighthouse-audit
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+      timezone: Europe/Moscow
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: lighthouse-audit
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      APP_URL: ${{ vars.APP_URL }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Wake up the app
+        run: curl --fail --silent --show-error --max-time 120 --output /dev/null "$APP_URL/"
+
+      - name: Run Lighthouse
+        run: |
+          mkdir -p .lighthouse
+          for page in home:/ book:/book; do
+            name=${page%%:*}
+            npx --yes lighthouse@13 "$APP_URL${page#*:}" --quiet \
+              --output=json --output=html --output-path=".lighthouse/$name" \
+              --chrome-flags="--headless=new --no-sandbox"
+          done
+
+      - name: Extract findings
+        run: |
+          jq -s --arg app "$APP_URL" --arg run "$RUN_URL" \
+            --argjson cats '["performance","accessibility","best-practices","seo"]' '
+            {app_url: $app, run_url: $run,
+             pages: map({url: .finalDisplayedUrl, scores: (.categories | with_entries(select(.key | IN($cats[]))) | map_values(.score))}),
+             findings: ([ .[] as $r | $r.categories | to_entries[] | select(.key | IN($cats[])) | .key as $c
+               | .value.auditRefs[] | select(.weight > 0) | $r.audits[.id] as $a
+               | select($a.score != null and $a.score < 0.5)
+               | {id: $a.id, category: $c, title: $a.title, description: $a.description,
+                  displayValue: ($a.displayValue // null), score: $a.score, url: $r.finalDisplayedUrl,
+                  examples: ([$a.details.items[]?.node.snippet? // empty] | .[:5])} ]
+               | group_by(.id) | map(.[0] + {pages: (map(.url) | unique)} | del(.url)))}' \
+            .lighthouse/*.report.json > .lighthouse/findings.json
+          {
+            echo "### Lighthouse: $APP_URL"
+            echo
+            echo "| Страница | performance | accessibility | best-practices | seo |"
+            echo "| --- | --- | --- | --- | --- |"
+            jq -r '.pages[] | "| \(.url) | \(.scores.performance) | \(.scores.accessibility) | \(.scores["best-practices"]) | \(.scores.seo) |"' .lighthouse/findings.json
+            echo
+            echo "Находки (score < 0.5): $(jq -r '[.findings[].id] | join(", ") | if . == "" then "нет" else . end' .lighthouse/findings.json)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-${{ github.run_id }}
+          path: .lighthouse/
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            RUN: ${{ env.RUN_URL }}
+            ARTIFACT: lighthouse-${{ github.run_id }}
+
+            Scheduled Lighthouse audit of the deployed calendar app at ${{ env.APP_URL }}.
+            Read .lighthouse/findings.json: category scores per page and findings (weighted audits with score < 0.5, merged across pages).
+            Full reports are in .lighthouse/*.report.json if a finding needs more detail.
+
+            1. List existing audit issues: gh issue list --label audit --state all --json number,title,state,labels,body.
+               Each finding issue body has a line `audit-key: lighthouse/<audit id>`.
+            2. For each finding:
+               - an open issue with the same key exists: do nothing, unless the finding has new facts (other pages, different value);
+                 then add one short comment with those facts;
+               - a closed issue with the same key is labelled wontfix: do nothing;
+               - otherwise create a new issue in Russian with labels audit, needs-triage and enhancement.
+                 Body: the problem in user terms, affected pages and examples from the report, proposed action,
+                 the checked app URL, the run link and artifact name, and the line `audit-key: lighthouse/<audit id>`.
+            3. Find the open issue with label audit titled «Журнал аудита Lighthouse» (create it with label audit if missing)
+               and add one comment in Russian: run link, artifact name, scores per page, and for each finding either the new issue number
+               or the existing one it matched. If there are no findings, say so plainly.
+            Do not change code, create branches or open pull requests.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --max-turns 30
+            --allowedTools "Read,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*)"
