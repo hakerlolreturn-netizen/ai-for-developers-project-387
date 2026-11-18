@@ -6,6 +6,8 @@ const frontendPort = 5273
 
 export default defineConfig({
   testDir: './tests',
+  // Tests share one in-memory backend and book the first free slot, so run them one at a time.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
