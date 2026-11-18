@@ -83,7 +83,9 @@ function GuestGroupView({
               <Text>
                 {`${dayjs(meetingDay(meeting, timeZone)).locale('ru').format('dddd, D MMMM')} · ${timeRange(meeting, timeZone)} · ${meeting.meetingType.name}`}
               </Text>
-              {new Date(meeting.start).getTime() <= now && <Badge color="green">идёт сейчас</Badge>}
+              {new Date(meeting.start).getTime() <= now && (
+                <Badge color="teal.9">идёт сейчас</Badge>
+              )}
             </Group>
           </List.Item>
         ))}
@@ -151,7 +153,7 @@ function MeetingsPage() {
                         {`${timeRange(meeting, timeZone)} · ${meeting.meetingType.name} · ${meeting.guestName} · ${meeting.guestEmail}`}
                       </Text>
                       {new Date(meeting.start).getTime() <= now && (
-                        <Badge color="green">идёт сейчас</Badge>
+                        <Badge color="teal.9">идёт сейчас</Badge>
                       )}
                     </Group>
                   </List.Item>
