@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../src/app.ts'
 
@@ -35,5 +36,21 @@ describe('static frontend', () => {
 
     expect(response.statusCode).toBe(404)
     expect(response.json()).toEqual({ code: 'not_found', message: 'Не найдено' })
+  })
+})
+
+describe('frontend public files', () => {
+  const app = buildApp({
+    staticDir: fileURLToPath(new URL('../../frontend/public', import.meta.url)),
+  })
+
+  afterAll(() => app.close())
+
+  it('serves robots.txt as plain text', async () => {
+    const response = await app.inject({ method: 'GET', url: '/robots.txt' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toContain('text/plain')
+    expect(response.body).toContain('User-agent: *')
   })
 })
