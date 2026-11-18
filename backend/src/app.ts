@@ -203,5 +203,23 @@ export function buildApp({ now = () => new Date(), staticDir, ...options }: AppO
     },
   )
 
+  app.delete<{ Params: { id: string } }>(
+    '/api/meetings/:id',
+    { schema: contract.routeSchema('MeetingsApi_cancelMeeting') },
+    async (request, reply) => {
+      const result = app.store.cancelMeeting(request.params.id, app.now())
+      if (result === 'not_found') {
+        return reply.code(404).send({ code: 'meeting_not_found', message: 'Встреча не найдена' })
+      }
+      if (result === 'started') {
+        return reply.code(409).send({
+          code: 'meeting_started',
+          message: 'Встреча уже началась, её нельзя отменить',
+        })
+      }
+      return reply.code(204).send()
+    },
+  )
+
   return app
 }

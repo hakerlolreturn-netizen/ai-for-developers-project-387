@@ -28,6 +28,14 @@ export function createStore() {
     listMeetings: (): Meeting[] => [...meetings],
     /** Existing meetings of all types as intervals that block slots. */
     busyIntervals,
+    /** Deletes a meeting that starts strictly after `now`, in one synchronous section. */
+    cancelMeeting(id: string, now: Date): 'cancelled' | 'not_found' | 'started' {
+      const index = meetings.findIndex((meeting) => meeting.id === id)
+      if (index === -1) return 'not_found'
+      if (new Date(meetings[index].start).getTime() <= now.getTime()) return 'started'
+      meetings.splice(index, 1)
+      return 'cancelled'
+    },
     /** Checks `start` against the free slots and inserts in one synchronous section. */
     bookMeeting(
       meetingType: MeetingType,
