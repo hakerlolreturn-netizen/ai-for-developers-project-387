@@ -57,7 +57,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: claude
@@ -70,12 +71,22 @@ jobs:
             Read REVIEW.md and follow it: criteria, review depth, finding format, re-review rules.
             Read the pull request with gh pr view and gh pr diff, then read every issue linked in its body
             (request, spec, tickets, approval comment) with gh issue view <n> --json title,body,comments, and compare the change with the spec.
+            The PR head is checked out in the working directory. Read every changed file in full with Read, not only the diff hunks,
+            and use Grep and Glob to follow the code it calls and the code that calls it.
+            For each user story and acceptance criterion in the spec, find the code that implements it and look for inputs, state
+            or a sequence of user actions under which it fails. Report it as a defect only if the scenario follows from the code.
             On a re-review, read earlier review comments and replies with gh api and do not repeat resolved ones.
             Post each confirmed defect as an inline comment on the changed line.
             Then post one summary comment with gh pr comment, in Russian: the reviewed HEAD SHA, whether the change matches the spec,
             and the list of findings, or a plain statement that there are no confirmed defects.
             Do not change code, push commits or approve the pull request.
           claude_args: |
-            --model claude-sonnet-5-5
+            --model claude-opus-5-5
             --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh api:*)"
+            --allowedTools "Read(./**),Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh api:*)"
+
+      - if: always() && steps.claude.outputs.execution_file != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: claude-review-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
