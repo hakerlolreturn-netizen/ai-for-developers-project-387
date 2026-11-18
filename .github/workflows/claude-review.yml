@@ -69,7 +69,7 @@ jobs:
             You are an independent reviewer of this pull request. You did not write this code.
             Read REVIEW.md and follow it: criteria, review depth, finding format, re-review rules.
             Read the pull request with gh pr view and gh pr diff, then read every issue linked in its body
-            (request, spec, tickets, approval comment) with gh issue view, and compare the change with the spec.
+            (request, spec, tickets, approval comment) with gh issue view <n> --json title,body,comments, and compare the change with the spec.
             On a re-review, read earlier review comments and replies with gh api and do not repeat resolved ones.
             Post each confirmed defect as an inline comment on the changed line.
             Then post one summary comment with gh pr comment, in Russian: the reviewed HEAD SHA, whether the change matches the spec,
