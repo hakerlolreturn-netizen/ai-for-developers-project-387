@@ -5,10 +5,45 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
-  review:
+  limit:
     if: >-
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MAX_RUNS: 5
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_CREATED: ${{ github.event.pull_request.created_at }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Count previous review runs for this PR
+        run: |
+          previous=$(gh api --paginate \
+            "repos/$GH_REPO/actions/workflows/claude-review.yml/runs?event=pull_request&branch=$HEAD_REF&per_page=100" \
+            --jq ".workflow_runs[]
+              | select(.id != ${{ github.run_id }} and .conclusion != \"skipped\")
+              | select(.created_at >= \"$PR_CREATED\")
+              | .id" | wc -l)
+          echo "Previous runs: $previous, limit: $MAX_RUNS"
+          if [ "$previous" -ge "$MAX_RUNS" ]; then
+            reason="Авторевью не запущено: исчерпан лимит запусков на PR ($previous из $MAX_RUNS)."
+            gh pr comment "$PR" --body "$reason
+          HEAD SHA: \`$HEAD_SHA\`
+          Лог: $RUN_URL
+          Этот head проверяет человек."
+            echo "::error::$reason HEAD SHA: $HEAD_SHA"
+            exit 1
+          fi
+
+  review:
+    needs: limit
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
