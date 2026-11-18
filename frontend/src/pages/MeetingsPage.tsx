@@ -1,4 +1,16 @@
-import { Anchor, Badge, Button, Container, Group, List, Stack, Text, Title } from '@mantine/core'
+import {
+  Alert,
+  Anchor,
+  Badge,
+  Button,
+  Container,
+  Group,
+  List,
+  Modal,
+  Stack,
+  Text,
+  Title,
+} from '@mantine/core'
 import dayjs from 'dayjs'
 import 'dayjs/locale/ru'
 import { useEffect, useState } from 'react'
@@ -47,14 +59,32 @@ function groupByGuest(meetings: Meeting[]): GuestGroup[] {
   return [...groups.values()]
 }
 
+const isRunning = (meeting: Meeting, now: number) => new Date(meeting.start).getTime() <= now
+
+function CancelButton({ meeting, onCancel }: { meeting: Meeting; onCancel: (m: Meeting) => void }) {
+  return (
+    <Button
+      variant="light"
+      color="red"
+      size="compact-sm"
+      aria-label={`Отменить встречу: ${meeting.meetingType.name}, ${meeting.guestName}`}
+      onClick={() => onCancel(meeting)}
+    >
+      Отменить
+    </Button>
+  )
+}
+
 function GuestGroupView({
   group,
   timeZone,
   now,
+  onCancel,
 }: {
   group: GuestGroup
   timeZone: string
   now: number
+  onCancel: (meeting: Meeting) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [firstName, ...otherNames] = group.names
@@ -83,7 +113,11 @@ function GuestGroupView({
               <Text>
                 {`${dayjs(meetingDay(meeting, timeZone)).locale('ru').format('dddd, D MMMM')} · ${timeRange(meeting, timeZone)} · ${meeting.meetingType.name}`}
               </Text>
-              {new Date(meeting.start).getTime() <= now && <Badge color="green">идёт сейчас</Badge>}
+              {isRunning(meeting, now) ? (
+                <Badge color="green">идёт сейчас</Badge>
+              ) : (
+                <CancelButton meeting={meeting} onCancel={onCancel} />
+              )}
             </Group>
           </List.Item>
         ))}
@@ -97,7 +131,36 @@ function MeetingsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>()
   const [owner, setOwner] = useState<Owner>()
   const [now] = useState(() => Date.now())
+  const [candidate, setCandidate] = useState<Meeting>()
+  const [cancelError, setCancelError] = useState<string>()
+  const [cancelling, setCancelling] = useState(false)
   const timeZone = owner?.timeZone ?? 'UTC'
+
+  const openCancel = (meeting: Meeting) => {
+    setCancelError(undefined)
+    setCandidate(meeting)
+  }
+
+  const confirmCancel = async () => {
+    if (!candidate) return
+    setCancelling(true)
+    setCancelError(undefined)
+    try {
+      const { error } = await api.DELETE('/api/meetings/{id}', {
+        params: { path: { id: candidate.id } },
+      })
+      if (error) {
+        setCancelError(error.message)
+        return
+      }
+      setMeetings((current) => current?.filter((meeting) => meeting.id !== candidate.id))
+      setCandidate(undefined)
+    } catch {
+      setCancelError('Не удалось отменить встречу')
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -135,7 +198,13 @@ function MeetingsPage() {
       <Stack mt="md" gap="lg">
         {mode === 'guests' &&
           groupByGuest(owner ? (meetings ?? []) : []).map((group) => (
-            <GuestGroupView key={group.key} group={group} timeZone={timeZone} now={now} />
+            <GuestGroupView
+              key={group.key}
+              group={group}
+              timeZone={timeZone}
+              now={now}
+              onCancel={openCancel}
+            />
           ))}
         {mode === 'days' &&
           groupByDay(owner ? (meetings ?? []) : [], timeZone).map(([day, dayMeetings]) => (
@@ -150,8 +219,10 @@ function MeetingsPage() {
                       <Text>
                         {`${timeRange(meeting, timeZone)} · ${meeting.meetingType.name} · ${meeting.guestName} · ${meeting.guestEmail}`}
                       </Text>
-                      {new Date(meeting.start).getTime() <= now && (
+                      {isRunning(meeting, now) ? (
                         <Badge color="green">идёт сейчас</Badge>
+                      ) : (
+                        <CancelButton meeting={meeting} onCancel={openCancel} />
                       )}
                     </Group>
                   </List.Item>
@@ -160,6 +231,36 @@ function MeetingsPage() {
             </div>
           ))}
       </Stack>
+      <Modal
+        opened={candidate !== undefined}
+        onClose={() => setCandidate(undefined)}
+        title="Отменить встречу?"
+        transitionProps={{ duration: 0 }}
+      >
+        {candidate && (
+          <Stack gap="xs">
+            <Text>{`Тип: ${candidate.meetingType.name}`}</Text>
+            <Text>
+              {`Время: ${inZone(candidate.start, timeZone).format('D.MM.YYYY')} ${timeRange(candidate, timeZone)}`}
+            </Text>
+            <Text>{`Гость: ${candidate.guestName}`}</Text>
+            <Text>{`Email: ${candidate.guestEmail}`}</Text>
+            {cancelError && (
+              <Alert color="red" role="alert">
+                {cancelError}
+              </Alert>
+            )}
+            <Group justify="flex-end" mt="sm">
+              <Button variant="default" onClick={() => setCandidate(undefined)}>
+                Не отменять
+              </Button>
+              <Button color="red" loading={cancelling} onClick={confirmCancel}>
+                Да, отменить
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
       <Anchor component={Link} to="/" mt="md" display="inline-block">
         На главную
       </Anchor>

@@ -31,18 +31,26 @@ const meeting = (
 
 let meetings: Stub[]
 let ownerTimeZone: string
+let deleteError: { code: string; message: string } | undefined
 let fetchMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-29T10:15:00+03:00'))
   meetings = []
+  deleteError = undefined
   ownerTimeZone = 'Europe/Moscow'
   fetchMock = vi.fn(async (input: Request) => {
     const { pathname } = new URL(input.url)
     if (pathname === '/api/meetings') return Response.json(meetings)
     if (pathname === '/api/owner') {
       return Response.json({ name: 'Владелец календаря', timeZone: ownerTimeZone })
+    }
+    if (input.method === 'DELETE' && pathname.startsWith('/api/meetings/')) {
+      if (deleteError) return Response.json(deleteError, { status: 409 })
+      const id = pathname.split('/').pop()
+      meetings = meetings.filter((item) => item.id !== id)
+      return new Response(null, { status: 204 })
     }
     return Response.json({ code: 'not_found', message: 'Не найдено' }, { status: 404 })
   })
@@ -166,8 +174,8 @@ describe('предстоящие встречи', () => {
       ])
       const rows = within(screen.getAllByRole('list')[0]!).getAllByRole('listitem')
       expect(rows.map((r) => r.textContent)).toEqual([
-        'четверг, 29 октября · 12:00–12:30 · Знакомство',
-        'четверг, 29 октября · 15:00–15:30 · Знакомство',
+        'четверг, 29 октября · 12:00–12:30 · ЗнакомствоОтменить',
+        'четверг, 29 октября · 15:00–15:30 · ЗнакомствоОтменить',
       ])
     })
 
@@ -230,6 +238,78 @@ describe('предстоящие встречи', () => {
       await screen.findByText('Предстоящих встреч нет')
       fireEvent.click(screen.getByRole('button', { name: 'По гостям' }))
       expect(screen.getByText('Предстоящих встреч нет')).toBeTruthy()
+    })
+  })
+
+  describe('отмена встречи', () => {
+    const future = () =>
+      meeting('a', 'Знакомство', '2026-10-29T12:00:00+03:00', '2026-10-29T12:30:00+03:00', 'Анна')
+    const running = () =>
+      meeting('b', 'Разбор', '2026-10-29T10:00:00+03:00', '2026-10-29T10:30:00+03:00', 'Борис')
+
+    it('кнопка есть у будущей встречи и нет у идущей', async () => {
+      meetings = [running(), future()]
+      renderPage()
+
+      const rows = await screen.findAllByRole('listitem')
+      expect(within(rows[0]!).queryByRole('button', { name: /Отменить/ })).toBeNull()
+      expect(within(rows[1]!).getByRole('button', { name: /Отменить/ })).toBeTruthy()
+    })
+
+    it('показывает подтверждение с данными встречи, отказ ничего не удаляет', async () => {
+      meetings = [future()]
+      renderPage()
+
+      fireEvent.click(await screen.findByRole('button', { name: /Отменить/ }))
+      const dialog = await screen.findByRole('dialog', { name: 'Отменить встречу?' })
+      expect(within(dialog).getByText('Тип: Знакомство')).toBeTruthy()
+      expect(within(dialog).getByText('Время: 29.10.2026 12:00–12:30')).toBeTruthy()
+      expect(within(dialog).getByText('Гость: Анна')).toBeTruthy()
+      expect(within(dialog).getByText('Email: a@example.com')).toBeTruthy()
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Не отменять' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.getByText(/Знакомство · Анна/)).toBeTruthy()
+      expect(fetchMock.mock.calls.some(([input]) => input.method === 'DELETE')).toBe(false)
+    })
+
+    it('подтверждение убирает встречу из списка', async () => {
+      meetings = [future()]
+      renderPage()
+
+      fireEvent.click(await screen.findByRole('button', { name: /Отменить/ }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Да, отменить' }))
+
+      expect(await screen.findByText('Предстоящих встреч нет')).toBeTruthy()
+      expect(screen.queryByText(/Знакомство · Анна/)).toBeNull()
+    })
+
+    it('в режиме «По гостям» группа пропадает с последней встречей', async () => {
+      meetings = [future()]
+      renderPage()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'По гостям' }))
+      expect(screen.getByRole('heading', { level: 2 })).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: /Отменить встречу: / }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Да, отменить' }))
+
+      expect(await screen.findByText('Предстоящих встреч нет')).toBeTruthy()
+      expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
+    })
+
+    it('показывает сообщение об ошибке из ответа API', async () => {
+      meetings = [future()]
+      deleteError = { code: 'meeting_started', message: 'Встреча уже началась, её нельзя отменить' }
+      renderPage()
+
+      fireEvent.click(await screen.findByRole('button', { name: /Отменить/ }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Да, отменить' }))
+
+      expect(await screen.findByText('Встреча уже началась, её нельзя отменить')).toBeTruthy()
+      expect(screen.getByText(/Знакомство · Анна/)).toBeTruthy()
     })
   })
 })
