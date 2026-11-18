@@ -57,8 +57,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - id: claude
-        uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: claude
@@ -84,9 +83,3 @@ jobs:
             --model claude-opus-5-5
             --max-turns 30
             --allowedTools "Read(./**),Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh api:*)"
-
-      - if: always() && steps.claude.outputs.execution_file != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: claude-review-${{ github.run_id }}
-          path: ${{ steps.claude.outputs.execution_file }}
