@@ -59,7 +59,8 @@ function groupByGuest(meetings: Meeting[]): GuestGroup[] {
   return [...groups.values()]
 }
 
-const isRunning = (meeting: Meeting, now: number) => new Date(meeting.start).getTime() <= now
+const isRunning = (meeting: Meeting, now: number, started: Set<string>) =>
+  started.has(meeting.id) || new Date(meeting.start).getTime() <= now
 
 function CancelButton({ meeting, onCancel }: { meeting: Meeting; onCancel: (m: Meeting) => void }) {
   return (
@@ -79,11 +80,13 @@ function GuestGroupView({
   group,
   timeZone,
   now,
+  started,
   onCancel,
 }: {
   group: GuestGroup
   timeZone: string
   now: number
+  started: Set<string>
   onCancel: (meeting: Meeting) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -113,7 +116,7 @@ function GuestGroupView({
               <Text>
                 {`${dayjs(meetingDay(meeting, timeZone)).locale('ru').format('dddd, D MMMM')} · ${timeRange(meeting, timeZone)} · ${meeting.meetingType.name}`}
               </Text>
-              {isRunning(meeting, now) ? (
+              {isRunning(meeting, now, started) ? (
                 <Badge color="green">идёт сейчас</Badge>
               ) : (
                 <CancelButton meeting={meeting} onCancel={onCancel} />
@@ -130,7 +133,8 @@ function MeetingsPage() {
   const [mode, setMode] = useState<'days' | 'guests'>('days')
   const [meetings, setMeetings] = useState<Meeting[]>()
   const [owner, setOwner] = useState<Owner>()
-  const [now] = useState(() => Date.now())
+  const [now, setNow] = useState(() => Date.now())
+  const [started, setStarted] = useState<Set<string>>(() => new Set())
   const [candidate, setCandidate] = useState<Meeting>()
   const [cancelError, setCancelError] = useState<string>()
   const [cancelling, setCancelling] = useState(false)
@@ -151,6 +155,10 @@ function MeetingsPage() {
       })
       if (error) {
         setCancelError(error.message)
+        if (error.code === 'meeting_started') {
+          setStarted((current) => new Set(current).add(candidate.id))
+          setNow(Date.now())
+        }
         return
       }
       setMeetings((current) => current?.filter((meeting) => meeting.id !== candidate.id))
@@ -161,6 +169,11 @@ function MeetingsPage() {
       setCancelling(false)
     }
   }
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -203,6 +216,7 @@ function MeetingsPage() {
               group={group}
               timeZone={timeZone}
               now={now}
+              started={started}
               onCancel={openCancel}
             />
           ))}
@@ -219,7 +233,7 @@ function MeetingsPage() {
                       <Text>
                         {`${timeRange(meeting, timeZone)} · ${meeting.meetingType.name} · ${meeting.guestName} · ${meeting.guestEmail}`}
                       </Text>
-                      {isRunning(meeting, now) ? (
+                      {isRunning(meeting, now, started) ? (
                         <Badge color="green">идёт сейчас</Badge>
                       ) : (
                         <CancelButton meeting={meeting} onCancel={openCancel} />

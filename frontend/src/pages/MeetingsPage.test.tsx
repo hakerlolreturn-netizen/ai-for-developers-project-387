@@ -311,5 +311,45 @@ describe('предстоящие встречи', () => {
       expect(await screen.findByText('Встреча уже началась, её нельзя отменить')).toBeTruthy()
       expect(screen.getByText(/Знакомство · Анна/)).toBeTruthy()
     })
+
+    describe('время идёт после открытия страницы', () => {
+      const running = () =>
+        meeting('r', 'Знакомство', '2026-10-29T10:20:00+03:00', '2026-10-29T10:50:00+03:00', 'Анна')
+
+      it.each(['По дням', 'По гостям'])(
+        'в режиме «%s» у начавшейся встречи кнопка заменяется бейджем',
+        async (label) => {
+          meetings = [running()]
+          renderPage()
+
+          fireEvent.click(await screen.findByRole('button', { name: label }))
+          expect(await screen.findByRole('button', { name: /Отменить встречу: / })).toBeTruthy()
+          expect(screen.queryByText('идёт сейчас')).toBeNull()
+
+          vi.setSystemTime(new Date('2026-10-29T10:25:00+03:00'))
+
+          expect(await screen.findByText('идёт сейчас', {}, { timeout: 3000 })).toBeTruthy()
+          expect(screen.queryByRole('button', { name: /Отменить встречу: / })).toBeNull()
+        },
+      )
+
+      it('после 409 meeting_started у встречи нет кнопки, даже если часы страницы отстают', async () => {
+        meetings = [running()]
+        deleteError = {
+          code: 'meeting_started',
+          message: 'Встреча уже началась, её нельзя отменить',
+        }
+        renderPage()
+
+        fireEvent.click(await screen.findByRole('button', { name: /Отменить встречу: / }))
+        const dialog = await screen.findByRole('dialog')
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Да, отменить' }))
+        expect(await screen.findByText('Встреча уже началась, её нельзя отменить')).toBeTruthy()
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Не отменять' }))
+
+        expect(await screen.findByText('идёт сейчас')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: /Отменить встречу: / })).toBeNull()
+      })
+    })
   })
 })
