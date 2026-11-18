@@ -120,6 +120,20 @@ model SlotTaken {
   message: string;
 }
 
+@error
+model MeetingNotFound {
+  @statusCode _: 404;
+  code: "meeting_not_found";
+  message: string;
+}
+
+@error
+model MeetingStarted {
+  @statusCode _: 409;
+  code: "meeting_started";
+  message: string;
+}
+
 @route("/api/meeting-types")
 @tag("meeting-types")
 interface MeetingTypesApi {
@@ -152,4 +166,10 @@ interface MeetingsApi {
     @statusCode _: 201;
     @body body: Meeting;
   } | ValidationError | MeetingTypeNotFound | SlotUnavailable | SlotTaken;
+
+  @delete
+  @route("{id}")
+  cancelMeeting(@path id: string): {
+    @statusCode _: 204;
+  } | MeetingNotFound | MeetingStarted;
 }
